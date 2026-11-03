@@ -1,6 +1,6 @@
-# Strata `4070-main-lite` (`carteakey/Strata`)
+# Strata `strata-lean` (`carteakey/strata-lean`)
 
-This branch (`4070-main-lite`) is a streamlined, minimal-bloat fork of Strata tailored specifically for an **RTX 4070 12 GB (Ada Lovelace, `sm_89`, 46 SMs)** paired with 64 GB DDR5-5200 host RAM running **Qwen3.8-Flash-Next** (`qwen4exp`, ISTA-DASLab GSQ-RCO IQ3_XXS with unquantized Q8_0 PLE table).
+This branch (`strata-lean`) is a streamlined, minimal-bloat fork of Strata tailored specifically for an **RTX 4070 12 GB (Ada Lovelace, `sm_89`, 46 SMs)** paired with 64 GB DDR5-5200 host RAM running **Qwen3.8-Flash-Next** (`qwen4exp`, ISTA-DASLab GSQ-RCO IQ3_XXS with unquantized Q8_0 PLE table).
 
 Rather than tracking every upstream release or pulling in multi-vendor bloat, this fork cherry-picks only high-value inference kernels, speculative decoding improvements, and CUDA optimizations while pruning unused architectures.
 
