@@ -54,11 +54,49 @@ this fork won, prefill is where it has not kept up.
 - **`0cef00fa` - Ada Lovelace `sm_89` MMVQ Interleave Table (Strata PR #3453)**:
   - Added hardware-calibrated warp row counts (`kIlRows_89[]`, `kIl1Rows_89[]`) for `IQ4_XS`, `Q4_K`, `Q5_K`, `Q6_K`, and `Q3_K` in `src/kernels/cuda/native_mmvq.cu`.
   - Yielded a direct +4.52 t/s (+7.0%) sustained decode improvement (65.08 -> 69.60 t/s).
+- **`1bd03954` - QSA Single-Pass Fused RMSNorm + RoPE (`STRATA_QSA_FUSE_NR`)**:
+  - Replaced 3 separate kernel launches (`split_q` + `rms_rows` + `rope`) for query, key, and indexer queries with a single CUDA pass (`rms_rope_rows`).
+  - Cuts memory traffic from ~1.1 GB to ~0.4 GB per QSA layer at 8k tokens. Includes an assembly register fence (`asm volatile("" : "+v"(ss));`) to guarantee bitwise mathematical equivalence with separate kernels.
+- **`3733343d` - Strict Mathematical Routing Preserved (`STRATA_ROUTE_TAIL_SKIP=0` Default)**:
+  - Defaulted `STRATA_ROUTE_TAIL_SKIP` to OFF (0) in `strata-lean`, overriding upstream's default 7. Prevents dropping 7th and 8th ranked expert misses during verify windows, avoiding KL 0.003-0.006 output drift.
 
 ### 3. Evaluated & Rejected Experiments
 - **`--mtp-q4 head` (On-the-fly Q4_0 draft head quantization)**:
   - Tested quantizing the MTP draft head from Q8_0 down to Q4_0 to reduce DRAM read traffic during drafting.
   - Result: Decode dropped from 69.60 t/s to 67.88 t/s. On-the-fly ALU dequantization in the draft step cost more latency than the memory bandwidth saved on an RTX 4070. Reverted to keep native Q8_0 draft head.
+
+---
+
+## Precision, Exactness & Quality-Speed Trade-Offs
+
+This section documents where numerical precision or sampling policies are traded for speed, and which upstream shortcuts I explicitly rejected.
+
+### Active Approximations & Trade-Offs
+
+- **CPU Prefill Sharing (`STRATA_PREFILL_CPU_SHARE`) [Active by Default]**:
+  - During prompt ingestion for chunks under 1,024 tokens, idle CPU threads evaluate un-cached expert rows in RAM (AVX2 FP32) concurrently while the GPU evaluates resident experts on tensor cores.
+  - CPU AVX2 floating-point arithmetic rounds slightly differently from GPU Ada tensor cores, introducing a mean KL divergence of ~0.004 (up to 0.026 nats max) against an all-GPU prefill.
+  - Setting `STRATA_PREFILL_CPU_SHARE=0` disables CPU sharing completely, forcing all expert evaluation onto the GPU for 100% bit-exact prefill.
+- **KV Cache Quantization (`--kv k8v4`) [Active]**:
+  - Stores K-cache in FP8 (`E4M3`) and V-cache in INT4 with randomized Hadamard rotation (`fwht256`).
+  - Uses 1.32 GiB at 128k context (leaving 5.35 GiB of VRAM to hold 3,277 hot experts), compared to ~4.8 GiB for FP16 KV.
+  - Hadamard rotation eliminates outlier distortion, keeping KL divergence small (~0.0008 vs FP16), but it remains a lossy quantization compared to full FP16 KV.
+- **Model Card Sampling vs Greedy Decoding [Active, Greedy Avoided]**:
+  - The runtime config (`strata-iq3_xxs-ple_q8.json`) enforces Qwen's official recommended sampling (`temperature: 1.0`, `top_p: 0.95`, `top_k: 20`, `min_p: 0.05`).
+  - Pure greedy decoding (`temperature: 0` / argmax) is faster (no multinomial draw step), but small and quantized reasoning models fall into repetitive degenerate loops under greedy argmax.
+- **Thinking Loop Recovery (`reasoning_loop_recovery: "recover"`) [Active]**:
+  - If the model generates a repeating pattern longer than 48 tokens inside a `<think>` block, the server wraps thinking into the final response to prevent infinite loops.
+
+### Rejected Upstream Shortcuts & Guarded Features
+
+| Feature / Switch | Upstream Claim | Measured Result & Reason for Rejection |
+| :--- | :--- | :--- |
+| **`STRATA_ROUTE_TAIL_SKIP=7`** | +10-20% decode on 12-16 GB cards | **Disabled by default in `strata-lean`**. Upstream enabled this by default in 0.1.56, skipping rank >= 7 expert misses during verify windows. Causes KL ~0.003-0.006 output drift. |
+| **`STRATA_ROUTE_PRIOR=1.5`** | Measured 102.23 t/s (93% cache hit rate) | **Rejected**. Re-weights routing probabilities towards cached experts. Upstream confirmed agent benchmark completion dropped from 5.6/10 down to 4.5/10. |
+| **`STRATA_GR_NORM_FAST`** | Faster group norm on sm_70 | **Disabled**. Measured 64.85 t/s vs 71.13 base (-6.3 t/s slower on Ada) and lower precision. |
+| **`STRATA_QSA_SPLIT_ATTN=1`** | +2.8-3.5% decode | **Kept Off**. Rounding-level KL drift of 0.0016 on INT8 MMA attention. |
+| **`STRATA_HC_REQ8=1`** | +2% decode | **Kept Off**. INT8 quantized hyper-connections; introduces KL drift of 0.0018. |
+| **Speculative Decoding (`--spec 4`)** | +60-80% decode speedup | **Mathematically Exact**. MTP draft tokens are strictly validated against target model logits via rejection sampling. Zero output quality loss. |
 
 ### 4. What the tier reports about itself at load
 
