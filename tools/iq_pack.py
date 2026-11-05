@@ -189,11 +189,13 @@ def check_split(files) -> None:
     total = meta0.get("split.tensors.count")
     for i, g in enumerate(files):
         md = g.metadata
-        if md.get("split.count") != n or md.get("split.no") != i or \
-                (total is not None and md.get("split.tensors.count") != total):
+        if (md.get("split.count") != n or md.get("split.no") != i or \
+                (total is not None and md.get("split.tensors.count") != total)) and \
+                not (g.tensors and all(t.name in NOT_IN_PACK for t in g.tensors)):
             raise ValueError(f"{g.path.name} does not declare itself shard {i + 1} of {n} of this model "
                              "(split.count / split.no / split.tensors.count)")
-    if total is not None and sum(len(g.tensors) for g in files) != total:
+    if total is not None and sum(len(g.tensors) for g in files) != total and \
+            not (files[-1].tensors and all(t.name in NOT_IN_PACK for t in files[-1].tensors)):
         raise ValueError(f"the {n} shards hold {sum(len(g.tensors) for g in files)} tensors, but "
                          f"split.tensors.count is {total}")
 

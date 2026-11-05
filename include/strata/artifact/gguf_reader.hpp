@@ -573,7 +573,8 @@ private:
             const MetaValue* count = g.get("split.count");
             const MetaValue* no = g.get("split.no");
             const MetaValue* tc = g.get("split.tensors.count");
-            if (!count || !no || count->u != n || no->u != i || (total && (!tc || tc->u != total->u)))
+            const bool is_external_ple = (g.tensors().size() == 1 && g.tensors().front().name == "per_layer_token_embd.weight");
+            if (!is_external_ple && (!count || !no || count->u != n || no->u != i || (total && (!tc || tc->u != total->u))))
                 throw std::runtime_error("GGUF: " + g.path() + " does not declare itself shard " + std::to_string(i + 1) +
                                          " of " + std::to_string(n) + " of this model (split.count / split.no / "
                                          "split.tensors.count)");

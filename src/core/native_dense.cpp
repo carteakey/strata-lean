@@ -267,6 +267,8 @@ bool NativeDense::load(const std::vector<std::string>& shards, WeightTable& tabl
         bool have_architecture = false;
         for (const auto& path : shards) {
             strata::GgufFile gguf(path);
+            const bool is_external_ple = (gguf.tensors().size() == 1 && gguf.tensors().front().name == "per_layer_token_embd.weight");
+            if (is_external_ple) continue;
             const auto* count = gguf.get("split.count");
             const auto* number = gguf.get("split.no");
             const auto* tensors = gguf.get("split.tensors.count");
